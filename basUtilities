@@ -1,0 +1,31 @@
+Option Compare Database
+Option Explicit
+
+Function vGetNextCounter(strTblName as String) as Long
+
+
+On Error Goto Err_vGetNextCounter
+
+
+
+
+
+
+Exit_vGetNextCounter:
+
+
+  Exit Function
+  
+Err_vGetNextCounter:
+  Select Case Err
+  
+    Case Else
+    ' let calling procedure handle returned zero value
+   
+  End Select
+  Resume Exit_vGetNextCounter
+
+
+
+
+End Function
