@@ -1,1 +1,153 @@
+Option Compare Database
+Option Explicit
+
+' ********************************************************************
+' this module contains procedures for a custom autonumber facility,
+'  offering more control than the built-in Access Autonumber data type.
+' it also facilitates any future migration of the back-end data to
+'  systems which don't support autonumbering or have any way of
+'  continuing a prior sequence.
+' all tables to use this should have key field set to Long Integer type,
+'  and measures must be taken to prevent manual record entry to those
+'  tables.
+'  ( - JHCL Feb 2015)
+' ********************************************************************
+
+' public variable to store path to database containing next autonumber records.
+'  - this variable is normally set by vvInitialise when application opens :
+'
+Public gstrAutoNumPath As String
+
+' name of database file storing values:
+'
+Public Const vvcAutoNumDb = "Counter.accdb"
+
+' suffix added to target table names to make identifiers in
+'  the auto number database
+'
+Public Const vvcAutoNumSuffix = "ID"
+
+'field name containing next auto number value
+'
+Public Const vvcAutoNumField = "NextCounter"
+
+' field name containg increment
+'
+Public Const vvcIncrementField = "Increment"
+
+' number of times to retry in case of locking conflicts:
+'
+Public Const vvcMaxRetries = 6
+
+' error constants:
+'
+Const vvcErrRI = 3000
+Const vvcNoFile = 3024
+Const vvcLockErrCantUpdate = 3260
+Const vvcLockErrTableInUse = 3262
+
+'
+Public Function vvGetNextAutoNum(ByVal strTableName As String) As Long
+' retrieve the next number for the specified table
+
+ On Error GoTo Err_vvGetNextAutoNum
+ 
+Dim strMsg As String
+Dim wsN As DAO.Workspace
+Dim dbN As DAO.Database
+Dim rsN As Recordset
+Dim lngNextNum As Long
+Dim lngWait As Long
+Dim lngX As Long
+Dim intLockCount As Integer
+Dim intRetry As Integer
+DoCmd.Hourglass True
+
+intLockCount = 0
+intRetry = 0
+
+' open recordset on the relevant table in the autonumber
+'  database, denying all reads to other users while open
+Set wsN = DBEngine.Workspaces(0)
+Set dbN = wsN.OpenDatabase(gstrAutoNumPath & vvcAutoNumDb, False)
+Set rsN = dbN.OpenRecordset(strTableName & vvcAutoNumSuffix, dbOpenTable, dbDenyRead)
+
+' return the autonumber value and increment
+With rsN
+    .MoveFirst  ' <- there should be only one record
+    .Edit
+    lngNextNum = .Fields(vvcAutoNumField)
+    .Fields(vvcAutoNumField) = .Fields(vvcIncrementField) + lngNextNum
+    .Update
+    .Close
+End With
+dbN.Close
+
+vvGetNextAutoNum = lngNextNum
+DoCmd.Hourglass False
+Exit_vvGetNextAutoNum:
+ 
+    Exit Function
+    
+Err_vvGetNextAutoNum:
+    Select Case Err
+        ' table locked by another user:
+        Case vvcErrRI Or vvcLockErrCantUpdate Or vvcLockErrTableInUse
+            intLockCount = intLockCount + 1
+            ' tried too many times, give up
+            If intLockCount > vvcMaxRetries Then
+                vvGetNextAutoNum = -1
+                DoCmd.Hourglass False
+                MsgBox "case 1: " & Err.Description
+                Resume Exit_vvGetNextAutoNum
+              Else
+                ' calculate a wait time based on number of retries and a random no.
+                lngWait = intLockCount ^ 2 * Int((Rnd * 20) + 5)
+                ' waste some time, letting windows do other stuff
+                For lngX = 1 To lngWait
+                  DoEvents
+                Next lngX
+                MsgBox "case 2: " & Err.Description
+                Resume
+                
+            End If
+        
+        
+        '  can't find counter database (counter.accdb):
+        Case vvcNoFile
+            intRetry = intRetry + 1
+            If intRetry < 2 Then
+            'retry using the paths held in ztblAppData
+             gstrAutoNumPath = vvGetAppData("AutoPath")
+             Resume
+            
+            End If
+            
+            
+            
+            strMsg = str(Err) & " Unable to find the specified file " & vbCr & vbLf
+            strMsg = strMsg & gstrAutoNumPath & vvcAutoNumDb
+            DoCmd.Hourglass False
+            MsgBox strMsg, vbCritical + vbOKOnly, "function vvGetNextAutoNum()"
+            vvGetNextAutoNum = -1
+            ' -- code to try to reconnect ? --
+            
+            
+            
+            
+            Resume Exit_vvGetNextAutoNum
+        ' any other error:
+               
+        Case Else
+            strMsg = "Unexpected Error - " & str(Err) & ": " & Err.Description
+            DoCmd.Hourglass False
+            MsgBox strMsg, vbCritical & vbOKOnly, "vvGetNextAutoNum()"
+            vvGetNextAutoNum = -1
+            MsgBox "case 3: " & Err.Description
+            Resume Exit_vvGetNextAutoNum
+        
+       
+    End Select
+
+End Function
 
